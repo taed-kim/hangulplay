@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Hangul Play</title>
+  <link rel="manifest" href="manifest.json" />
+  <meta name="theme-color" content="#0b5fff" />
+  <script src="https://unpkg.com/hangul-js@0.2.6"></script>
+  <style>
+    ::root{
+      --primary:#0b5fff; --bg:#f5f7fb; --card:#fff; --text:#0b1020; --muted:#7b869d;
+      --key:#fff; --key-bd:#d9e0ff; --shadow:0 6px 16px rgba(15,49,135,.08); --radius:18px;
+
+      /* 버튼 높이/글꼴/간격을 뷰포트에 맞춰 자동 스케일 */
+      --key-height: clamp(72px, 13dvh, 140px);
+      --key-font:   clamp(30px, 8vw, 52px);
+      --key-gap:    clamp(10px, 2.4dvh, 16px);
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Apple SD Gothic Neo,Noto Sans KR,Arial,sans-serif}
+    /* 한 화면(뷰포트) 안에 다 보이도록 3단 그리드: 탭 / 상단 / 키보드 */
+    .app{height:100dvh;max-width:980px;margin:0 auto;padding:12px;display:grid;grid-template-rows:auto auto 1fr;gap:10px}
+    .tabs{display:flex;gap:10px}
+    .tab{padding:10px 14px;border-radius:14px;background:#eaf0ff;color:#2d3a7a;font-weight:700;cursor:pointer}
+    .tab.is-active{background:var(--primary);color:#fff}
+    .top{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .card{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:12px}
+    .card h4{margin:0 0 6px;color:var(--muted);font-size:13px}
+    .target{
+      min-height:80px;display:flex;align-items:center;justify-content:center;
+      font-size:clamp(42px,9vw,72px);font-weight:800;background:#f2f5ff;border-radius:14px
+    }
+    .goals{margin-top:6px;color:#57607a;font-weight:600;display:flex;justify-content:space-between;align-items:center}
+    .stars{display:flex;gap:6px}.star{filter:grayscale(1) opacity(.5)}.star.on{filter:none}
+    /* 내가 만든 글자: 좌/우 반으로 분할(자음/모음) */
+    .built-split{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+    .split-box{
+      min-height:80px;background:#f2f5ff;border-radius:14px;
+      display:flex;align-items:center;justify-content:center;
+      font-size:clamp(40px,8vw,64px);font-weight:800;position:relative
+    }
+    .split-box.empty::after{content:"•";color:#9fb1ff}
+    .built-actions{display:flex;gap:8px;margin-top:8px}
+    .btn{border:none;background:#edf2ff;color:#2d3a7a;padding:9px 12px;border-radius:12px;font-weight:700;cursor:pointer}
+    .btn--primary{background:var(--primary);color:#fff}
+    /* 키보드: 한 화면에 들어오도록 스크롤 영역 */
+    /* 키보드를 좌/우 두 칼럼으로 */
+    .kb-wrap{
+      min-height:0;
+      background:var(--card);
+      border-radius:var(--radius);
+      box-shadow:var(--shadow);
+      padding:12px;
+      display:grid;
+      grid-template-columns: 1fr 1fr; /* 왼쪽 자음 / 오른쪽 모음 */
+      gap:12px;
+      overflow:auto;
+    }
+
+    /* 각 칼럼 내부: 제목 + 키영역 */
+    .kb-col{
+      display:grid;
+      grid-template-rows: auto 1fr;
+      gap:8px;
+      min-height:0;
+    }
+
+    .kb-title{ margin:0; color:var(--muted); font-weight:700; font-size:13px }
+
+    /* 키는 2열×3행, 터치 크게 */
+    .keys{
+      display:grid;
+      grid-template-columns: repeat(2, minmax(0,1fr)); /* 2열 */
+      gap: var(--key-gap);
+      grid-auto-rows: var(--key-height);               /* 3행이 되도록 자동 높이 */
+    }
+
+    .key{
+      background:var(--key);
+      border:2px solid var(--key-bd);
+      border-radius:999px;
+      display:flex; align-items:center; justify-content:center;
+      padding:0;
+      font-size:var(--key-font);
+      font-weight:800;
+      line-height:1;
+      cursor:pointer; user-select:none; touch-action:manipulation;
+      box-shadow:0 2px 0 rgba(0,0,0,.05);
+    }
+    .key:active{ transform:translateY(1px) }
+
+    /* 세로폭이 아주 좁은 모바일에서도 한 화면에 들어오도록 약간 더 키우기 */
+    @media (max-width:760px){
+      .top{ grid-template-columns:1fr }
+      :root{
+        --key-height: clamp(68px, 15dvh, 136px);
+        --key-font:   clamp(28px, 9vw, 50px);
+      }
+    }
+    /* 큰 화면에서 살짝 키우기 */
+    @media (min-width:1100px){
+      :root{
+        --key-height: clamp(78px, 10dvh, 140px);
+        --key-font:   clamp(32px, 5vw, 54px);
+      }
+    }
+
+    /* 칭찬 캐릭터 */
+    .coach{ display:flex; align-items:center; gap:10px; margin-top:10px }
+    .avatar{
+      width:56px; height:56px; border-radius:50%;
+      display:flex; align-items:center; justify-content:center;
+      background:#fff7; box-shadow:var(--shadow); font-size:28px;
+    }
+    .avatar.pop{ animation:pop .4s ease }
+    @keyframes pop{
+      0%{ transform:scale(.9) } 50%{ transform:scale(1.12) } 100%{ transform:scale(1) }
+    }
+    .bubble{
+      opacity:0; transform:translateY(6px);
+      transition:opacity .25s ease, transform .25s ease;
+      background:#fff; padding:8px 12px; border-radius:999px; box-shadow:var(--shadow);
+      font-weight:700;
+    }
+    .bubble.show{ opacity:1; transform:translateY(0) }
+
+  </style>
+</head>
+<body>
+  <main class="app">
+    <!-- 탭 -->
+    <nav class="tabs" aria-label="모드 전환">
+      <div class="tab is-active" data-mode="hangul">한글</div>
+      <div class="tab" data-mode="word">단어</div>
+      <div class="tab" data-mode="trace">따라쓰기</div>
+    </nav>
+
+    <!-- 상단: 목표/내가 만든 글자 -->
+    <section class="top">
+      <div class="card">
+        <h4>만들어볼 글자</h4>
+        <div id="targetChar" class="target" aria-live="polite" aria-atomic="true">가</div>
+        <div class="goals">
+          <span>오늘 목표 5개</span>
+          <div id="stars" class="stars"><span class="star">★</span><span class="star">★</span><span class="star">★</span><span class="star">★</span><span class="star">★</span></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h4>내가 만든 글자 (좌:자음 / 우:모음)</h4>
+        <div class="built-split">
+          <div id="builtCho" class="split-box empty" aria-label="선택된 자음"></div>
+          <div id="builtVow" class="split-box empty" aria-label="선택된 모음"></div>
+        </div>
+        <div class="built-actions">
+          <button id="btnClear" class="btn" type="button">지우기</button>
+          <button id="btnShuffle" class="btn" type="button">자판 섞기</button>
+          <button id="btnNext" class="btn btn--primary" type="button">다음 글자</button>
+        </div>
+
+        <!-- 칭찬 캐릭터 -->
+        <div class="coach" aria-live="polite" aria-atomic="true">
+          <div class="avatar" title="칭찬이">
+            👏
+          </div>
+          <div id="praiseBubble" class="bubble" role="status"></div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- 키보드 -->
+    <!-- 키보드 (좌:자음 / 우:모음) -->
+    <section class="kb-wrap">
+      <div class="kb-col">
+        <p class="kb-title">자음</p>
+        <div id="conKeys" class="keys" role="group" aria-label="자음 키보드"></div>
+      </div>
+      <div class="kb-col">
+        <p class="kb-title">모음</p>
+        <div id="vowKeys" class="keys" role="group" aria-label="모음 키보드"></div>
+      </div>
+    </section>
+
+  </main>
+
+  <script>
+    // ===== 기본 데이터 =====
+    const CONSONANTS_BASE = ['ㄱ','ㄴ','ㄷ','ㄹ','ㅁ','ㅂ','ㅅ','ㅇ','ㅈ','ㅊ','ㅋ','ㅌ','ㅍ','ㅎ'];
+    const VOWELS_BASE     = ['ㅏ','ㅑ','ㅓ','ㅕ','ㅗ','ㅛ','ㅜ','ㅠ','ㅡ','ㅣ'];
+    const JAMO_READ = {'ㄱ':'기역','ㄴ':'니은','ㄷ':'디귿','ㄹ':'리을','ㅁ':'미음','ㅂ':'비읍','ㅅ':'시옷','ㅇ':'이응','ㅈ':'지읒','ㅊ':'치읓','ㅋ':'키읔','ㅌ':'티읕','ㅍ':'피읍','ㅎ':'히읗','ㅏ':'아','ㅑ':'야','ㅓ':'어','ㅕ':'여','ㅗ':'오','ㅛ':'요','ㅜ':'우','ㅠ':'유','ㅡ':'으','ㅣ':'이'};
+
+    // ===== 사운드 유틸 =====
+    let audioCtx;
+    function ensureAudio(){
+      try{
+        audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+      }catch(e){}
+    }
+    // 짧은 '삑' 소리
+    function beep(freq=850, dur=0.08){
+      ensureAudio();
+      if(!audioCtx) return;
+      const t = audioCtx.currentTime + 0.005;
+      const o = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      o.type = 'sine';
+      o.frequency.setValueAtTime(freq, t);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.22, t+0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t+dur);
+      o.connect(g).connect(audioCtx.destination);
+      o.start(t); o.stop(t+dur+0.02);
+    }
+
+    // TTS(ko-KR) 보이스 로드 & 선택
+    let koVoice = null;
+    function pickKoVoice(){
+      const vs = window.speechSynthesis ? speechSynthesis.getVoices() : [];
+      // ko-KR 우선 → ko 포함 → 기본
+      koVoice = vs.find(v=>/ko-KR/i.test(v.lang)) || vs.find(v=>/^ko/i.test(v.lang)) || vs[0] || null;
+    }
+    if ('speechSynthesis' in window){
+      pickKoVoice();
+      window.speechSynthesis.onvoiceschanged = pickKoVoice;
+    }
+
+    function speak(text, {isJamo=false} = {}){
+      // 클릭 시 즉시 비프 (피드백)
+      beep(isJamo ? 820 : 900, 0.07);
+
+      if (!('speechSynthesis' in window)) return; // TTS 미지원 환경
+      try{
+        const msg = new SpeechSynthesisUtterance(isJamo ? (JAMO_READ[text] || text) : text);
+        msg.lang = (koVoice && koVoice.lang) || 'ko-KR';
+        if (koVoice) msg.voice = koVoice;
+        msg.rate = 1.0; msg.pitch = 1.0;
+        // 큐가 과도하게 쌓였으면 정리
+        if (speechSynthesis.pending || speechSynthesis.speaking) speechSynthesis.cancel();
+        speechSynthesis.speak(msg);
+      }catch(e){}
+    }
+
+    function successTone(){
+      // 간단한 성공 멜로디
+      beep(660, .08);
+      setTimeout(()=>beep(880, .09), 120);
+      setTimeout(()=>beep(990, .10), 240);
+    }
+
+    function praise(){
+      const phrases = [
+        "정답! 너무 잘했어요 👏",
+        "훌륭해요! 계속 가볼까요? ✨",
+        "멋져요! 딩동댕 👍",
+        "대단해요 😊 다음 글자도 도전!"
+      ];
+      const bubble = document.getElementById('praiseBubble');
+      const avatar = document.querySelector('.avatar');
+      if (!bubble || !avatar) return;
+
+      bubble.textContent = phrases[Math.floor(Math.random()*phrases.length)];
+      // 애니메이션 재시작을 위한 강제 리플로우
+      bubble.classList.remove('show'); avatar.classList.remove('pop');
+      void bubble.offsetWidth; void avatar.offsetWidth;
+      bubble.classList.add('show'); avatar.classList.add('pop');
+
+      successTone();
+    }
+
+
+    // ===== 상태 =====
+    let target='가', needCho='ㄱ', needVow='ㅏ';
+    let selectedCho=null, selectedVow=null;
+    let progress=0;
+
+    // ===== 유틸 =====
+    const $  = (s,el=document)=>el.querySelector(s);
+    const $$ = (s,el=document)=>Array.from(el.querySelectorAll(s));
+    const shuffle = a=>a.map(v=>[Math.random(),v]).sort((x,y)=>x[0]-y[0]).map(v=>v[1]);
+    const choice = a=>a[Math.floor(Math.random()*a.length)];
+    function speak(text,{isJamo=false}={}){
+      try{
+        const u=new SpeechSynthesisUtterance(isJamo?(JAMO_READ[text]||text):text);
+        u.lang='ko-KR'; window.speechSynthesis.cancel(); window.speechSynthesis.speak(u);
+      }catch(e){}
+    }
+    function setStars(n){ $$('#stars .star').forEach((st,i)=>st.classList.toggle('on', i<n)); }
+    function updateBuiltUI(){
+      const c=$('#builtCho'), v=$('#builtVow');
+      c.textContent = selectedCho || ''; v.textContent = selectedVow || '';
+      c.classList.toggle('empty', !selectedCho); v.classList.toggle('empty', !selectedVow);
+    }
+
+    // ===== 키보드 렌더 =====
+    function renderKeyboard(){
+      const conSet=new Set([needCho]), vowSet=new Set([needVow]);
+      const conPool=CONSONANTS_BASE.filter(c=>c!==needCho);
+      const vowPool=VOWELS_BASE.filter(v=>v!==needVow);
+      while(conSet.size<6) conSet.add(choice(conPool));
+      while(vowSet.size<6) vowSet.add(choice(vowPool));
+      const cons=shuffle([...conSet]), vows=shuffle([...vowSet]);
+
+      const conWrap=$('#conKeys'); conWrap.innerHTML='';
+      const vowWrap=$('#vowKeys'); vowWrap.innerHTML='';
+      cons.forEach(c=>conWrap.appendChild(makeKey(c,'cho')));
+      vows.forEach(v=>vowWrap.appendChild(makeKey(v,'vow')));
+    }
+    function makeKey(label,type){
+      const b=document.createElement('button');
+      b.type='button'; b.className='key'; b.textContent=label; b.dataset.type=type;
+      b.addEventListener('click', onKeyPress);
+      return b;
+    }
+
+    // ===== 입력(교체 방식) =====
+    function onKeyPress(e){
+      const val = e.currentTarget.textContent;
+      const isCho = e.currentTarget.dataset.type==='cho';
+      if(isCho){
+        selectedCho = val;          // 기존 값이 있으면 '교체'
+        speak(val,{isJamo:true});
+      }else{
+        selectedVow = val;          // 기존 값이 있으면 '교체'
+        speak(val,{isJamo:true});
+      }
+      updateBuiltUI();
+
+      // 자음/모음이 모두 선택되면 조합 후 발음 & 정답 판정
+      // 자음/모음이 모두 선택되면 조합 후 발음 & 정답 판정
+      if(selectedCho && selectedVow){
+        const assembled = Hangul.assemble([selectedCho, selectedVow]);
+        // 완성 글자 발음 (TTS)
+        setTimeout(()=>speak(assembled), 60);
+
+        if(assembled === target){
+          praise(); // ✅ 칭찬 연출 + 성공 톤
+          progress = Math.min(5, progress+1);
+          setStars(progress);
+          setTimeout(nextRound, 420);
+        }
+      }
+
+    }
+
+    // ===== 라운드 제어 =====
+    function clearBuilt(){
+      selectedCho=null; selectedVow=null; updateBuiltUI();
+    }
+    function genTarget(){
+      needCho = choice(CONSONANTS_BASE);
+      needVow = choice(VOWELS_BASE);
+      target  = Hangul.assemble([needCho, needVow]);
+      $('#targetChar').textContent = target;
+    }
+    function nextRound(){
+      clearBuilt(); genTarget(); renderKeyboard();
+    }
+
+    // 탭(디자인만)
+    $$('.tab').forEach(t=>t.addEventListener('click',()=>{$$('.tab').forEach(x=>x.classList.remove('is-active')); t.classList.add('is-active')}));
+
+    // 버튼
+    $('#btnClear').addEventListener('click', clearBuilt);
+    $('#btnShuffle').addEventListener('click', renderKeyboard);
+    $('#btnNext').addEventListener('click', nextRound);
+
+    // 초기화
+    setStars(0); nextRound();
+
+    if('serviceWorker' in navigator){ navigator.serviceWorker.register('sw.js').catch(()=>{}); }
+  </script>
+</body>
+</html>
